@@ -149,11 +149,10 @@ async fn create_response_sample(
         .await?;
 
     let (example_nft_tx, example_nft) = get_nft_response(&mut context).await?;
-    let move_package = create_package_object_response(&mut context).await?;
+    let (move_package, publish) = create_package_object_response(&mut context).await?;
     let hero = create_hero_response(&mut context, &coins).await?;
     let transfer = create_transfer_response(&mut context, address, &coins).await?;
     let coin_split = create_coin_split_response(&mut context, &coins).await?;
-
     let objects = ObjectResponseSample {
         example_nft,
         coin,
@@ -165,6 +164,7 @@ async fn create_response_sample(
         move_call: example_nft_tx,
         transfer,
         coin_split,
+        publish,
     };
 
     Ok((objects, txs))
@@ -172,7 +172,7 @@ async fn create_response_sample(
 
 async fn create_package_object_response(
     context: &mut WalletContext,
-) -> Result<GetObjectDataResponse, anyhow::Error> {
+) -> Result<(GetObjectDataResponse, TransactionResponse), anyhow::Error> {
     let result = WalletCommands::Publish {
         path: "sui_programmability/tutorial".to_string(),
         gas: None,
@@ -181,10 +181,13 @@ async fn create_package_object_response(
     .execute(context)
     .await?;
     if let WalletCommandResult::Publish(response) = result {
-        Ok(context
-            .gateway
-            .get_object(response.package.object_id)
-            .await?)
+        Ok((
+            context
+                .gateway
+                .get_object(response.package.object_id)
+                .await?,
+            TransactionResponse::PublishResponse(response),
+        ))
     } else {
         panic!()
     }
@@ -334,4 +337,5 @@ struct TransactionResponseSample {
     pub move_call: TransactionResponse,
     pub transfer: TransactionResponse,
     pub coin_split: TransactionResponse,
+    pub publish: TransactionResponse,
 }
