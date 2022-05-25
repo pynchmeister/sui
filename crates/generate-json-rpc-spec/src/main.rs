@@ -1,6 +1,10 @@
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::Write;
+
 use clap::ArgEnum;
 use clap::Parser;
 use hyper::body::Buf;
@@ -8,8 +12,10 @@ use hyper::{Body, Client, Method, Request};
 use pretty_assertions::assert_str_eq;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
+
 use std::fs::File;
 use std::io::Write;
+use sui::config::SUI_WALLET_CONFIG;
 use sui::wallet_commands::{WalletCommandResult, WalletCommands, WalletContext};
 use sui::wallet_commands::{EXAMPLE_NFT_DESCRIPTION, EXAMPLE_NFT_NAME, EXAMPLE_NFT_URL};
 use sui_config::GenesisConfig;
@@ -17,6 +23,8 @@ use sui_config::SUI_WALLET_CONFIG;
 use sui_core::gateway_types::{
     GetObjectDataResponse, SuiObjectInfo, TransactionEffectsResponse, TransactionResponse,
 };
+use sui_gateway::api::RpcGatewayApiClient;
+use sui_gateway::api::RpcReadApiClient;
 use sui_gateway::api::RpcTransactionBuilderClient;
 use sui_gateway::api::{SuiRpcModule, TransactionBytes};
 use sui_gateway::json_rpc::sui_rpc_doc;
@@ -27,6 +35,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::sui_serde::{Base64, Encoding};
 use sui_types::SUI_FRAMEWORK_ADDRESS;
 use test_utils::network::{start_rpc_test_network, TestNetwork};
+
 #[derive(Debug, Parser, Clone, Copy, ArgEnum)]
 enum Action {
     Print,
@@ -59,6 +68,11 @@ const TRANSACTION_SAMPLE_FILE_PATH: &str = concat!(
     "/../sui-open-rpc/samples/transactions.json",
 );
 
+const OWNED_OBJECT_SAMPLE_FILE_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../sui-open-rpc/samples/owned_objects.json",
+);
+
 #[tokio::main]
 async fn main() {
     let options = Options::parse();
@@ -74,20 +88,24 @@ async fn main() {
         Action::Print => {
             let content = serde_json::to_string_pretty(&open_rpc).unwrap();
             println!("{content}");
-            let (objects, txs) = create_response_sample().await.unwrap();
+            let (objects, txs, addresses) = create_response_sample().await.unwrap();
             println!("{}", serde_json::to_string_pretty(&objects).unwrap());
             println!("{}", serde_json::to_string_pretty(&txs).unwrap());
+            println!("{}", serde_json::to_string_pretty(&addresses).unwrap());
         }
         Action::Record => {
             let content = serde_json::to_string_pretty(&open_rpc).unwrap();
             let mut f = File::create(FILE_PATH).unwrap();
             writeln!(f, "{content}").unwrap();
-            let (objects, txs) = create_response_sample().await.unwrap();
+            let (objects, txs, addresses) = create_response_sample().await.unwrap();
             let content = serde_json::to_string_pretty(&objects).unwrap();
             let mut f = File::create(OBJECT_SAMPLE_FILE_PATH).unwrap();
             writeln!(f, "{content}").unwrap();
             let content = serde_json::to_string_pretty(&txs).unwrap();
             let mut f = File::create(TRANSACTION_SAMPLE_FILE_PATH).unwrap();
+            writeln!(f, "{content}").unwrap();
+            let content = serde_json::to_string_pretty(&addresses).unwrap();
+            let mut f = File::create(OWNED_OBJECT_SAMPLE_FILE_PATH).unwrap();
             writeln!(f, "{content}").unwrap();
         }
         Action::Test => {
@@ -98,8 +116,14 @@ async fn main() {
     }
 }
 
-async fn create_response_sample(
-) -> Result<(ObjectResponseSample, TransactionResponseSample), anyhow::Error> {
+async fn create_response_sample() -> Result<
+    (
+        ObjectResponseSample,
+        TransactionResponseSample,
+        BTreeMap<SuiAddress, Vec<SuiObjectInfo>>,
+    ),
+    anyhow::Error,
+> {
     let network = start_rpc_test_network(Some(GenesisConfig::custom_genesis(1, 4, 30))).await?;
     let working_dir = network.working_dir.clone();
     let config = working_dir.join(SUI_WALLET_CONFIG);
@@ -124,7 +148,18 @@ async fn create_response_sample(
     let (hero_package, hero) = create_hero_response(&mut context, &coins).await?;
     let transfer = create_transfer_response(&mut context, address, &coins).await?;
     let coin_split = create_coin_split_response(&mut context, &coins).await?;
-    let error = create_error_response(address, hero_package, context, network).await?;
+    let error = create_error_response(address, hero_package, context, &network).await?;
+
+    // address and owned objects
+    let mut owned_objects = BTreeMap::new();
+    for account in network.accounts {
+        network.http_client.sync_account_state(account).await?;
+        let objects: Vec<SuiObjectInfo> = network
+            .http_client
+            .get_objects_owned_by_address(account)
+            .await?;
+        owned_objects.insert(account, objects);
+    }
 
     let objects = ObjectResponseSample {
         example_nft,
@@ -141,7 +176,7 @@ async fn create_response_sample(
         error,
     };
 
-    Ok((objects, txs))
+    Ok((objects, txs, owned_objects))
 }
 
 async fn create_package_object_response(
@@ -244,7 +279,7 @@ async fn create_error_response(
     address: SuiAddress,
     hero_package: ObjectID,
     context: WalletContext,
-    network: TestNetwork,
+    network: &TestNetwork,
 ) -> Result<Value, anyhow::Error> {
     // Cannot use wallet command as it will return Err if tx status is Error
     // Using hyper to get the raw response instead
@@ -271,7 +306,7 @@ async fn create_error_response(
 
     let client = Client::new();
     let request = Request::builder()
-        .uri(network.rpc_url)
+        .uri(network.rpc_url.clone())
         .method(Method::POST)
         .header("Content-Type", "application/json")
         .body(Body::from(format!(
