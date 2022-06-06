@@ -138,7 +138,7 @@ impl Event {
                 match layout {
                     MoveTypeLayout::Struct(l) => {
                         let s =
-                            MoveStruct::simple_deserialize(&event.contents(), &l).map_err(|e| {
+                            MoveStruct::simple_deserialize(event.contents(), &l).map_err(|e| {
                                 SuiError::ObjectSerializationError {
                                     error: e.to_string(),
                                 }
