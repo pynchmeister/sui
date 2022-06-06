@@ -17,14 +17,14 @@ use sui_gateway::bcs_api::BcsApiImpl;
 use sui_gateway::json_rpc::JsonRpcServerBuilder;
 use sui_gateway::read_api::{FullNodeApi, ReadApi};
 use sui_network::api::ValidatorServer;
-use sui_storage::IndexStore;
+use sui_storage::{follower_store::FollowerStore, IndexStore};
 use tracing::info;
 
 pub struct SuiNode {
     grpc_server: tokio::task::JoinHandle<Result<()>>,
     _json_rpc_service: Option<jsonrpsee::http_server::HttpServerHandle>,
     _batch_subsystem_handle: tokio::task::JoinHandle<Result<()>>,
-    _gossip_handle: Option<tokio::task::JoinHandle<()>>,
+    _gossip_handle: Option<tokio::task::JoinHandle<Result<()>>>,
     state: Arc<AuthorityState>,
 }
 
@@ -58,6 +58,8 @@ impl SuiNode {
             )))
         };
 
+        let follower_store = Arc::new(FollowerStore::open(config.db_path().join("follower_db"))?);
+
         let state = Arc::new(
             AuthorityState::new(
                 genesis.committee(),
@@ -66,6 +68,7 @@ impl SuiNode {
                 store,
                 index_store,
                 checkpoint_store,
+                Some(follower_store),
                 genesis,
             )
             .await,
@@ -98,7 +101,8 @@ impl SuiNode {
                     // start receiving the earliest TXes the validator has.
                     Some(0),
                 )
-                .await;
+                .await
+                .map_err(Into::into)
             }))
         };
 

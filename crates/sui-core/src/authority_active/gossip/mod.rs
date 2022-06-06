@@ -45,7 +45,7 @@ const REFRESH_FOLLOWER_PERIOD_SECS: u64 = 60;
 
 use super::ActiveAuthority;
 
-pub async fn gossip_process<A>(active_authority: &ActiveAuthority<A>, degree: usize)
+pub async fn gossip_process<A>(active_authority: &ActiveAuthority<A>, degree: usize) -> SuiResult
 where
     A: AuthorityAPI + Send + Sync + 'static + Clone,
 {
@@ -56,7 +56,8 @@ pub async fn gossip_process_with_start_seq<A>(
     _active_authority: &ActiveAuthority<A>,
     degree: usize,
     start_seq: Option<TxSequenceNumber>,
-) where
+) -> SuiResult
+where
     A: AuthorityAPI + Send + Sync + 'static + Clone,
 {
     // Make a clone of the active authority and committee, and keep using it until epoch changes.
@@ -69,7 +70,7 @@ pub async fn gossip_process_with_start_seq<A>(
     // If we do not expect to connect to anyone
     if target_num_tasks == 0 {
         info!("Turning off gossip mechanism");
-        return;
+        return Ok(());
     }
     info!("Turning on gossip mechanism");
 
@@ -116,10 +117,10 @@ pub async fn gossip_process_with_start_seq<A>(
 
             peer_names.insert(name);
             let local_active_ref_copy = local_active.clone();
+            let peer_gossip = PeerGossip::new(name, &local_active_ref_copy, start_seq)?;
             gossip_tasks.push(async move {
-                let peer_gossip = PeerGossip::new(name, &local_active_ref_copy, start_seq);
                 // Add more duration if we make more than 1 to ensure overlap
-                debug!("Starting gossip from peer {:?}", name);
+                debug!(peer = ?name, "Starting gossip from peer");
                 peer_gossip
                     .start(Duration::from_secs(REFRESH_FOLLOWER_PERIOD_SECS + k * 15))
                     .await
@@ -160,7 +161,7 @@ async fn wait_for_one_gossip_task_to_finish<A>(
     if let Err(err) = _result {
         active_authority.set_failure_backoff(finished_name).await;
         active_authority.state.metrics.gossip_task_error_count.inc();
-        error!("Peer {:?} returned error: {:?}", finished_name, err);
+        error!(peer = ?finished_name, "Peer returned error: {:?}", err);
     } else {
         active_authority.set_success_backoff(finished_name).await;
         active_authority
@@ -168,7 +169,7 @@ async fn wait_for_one_gossip_task_to_finish<A>(
             .metrics
             .gossip_task_success_count
             .inc();
-        debug!("End gossip from peer {:?}", finished_name);
+        debug!(peer = ?finished_name, "End gossip from peer");
     }
     peer_names.remove(&finished_name);
 }
@@ -224,14 +225,19 @@ where
         peer_name: AuthorityName,
         active_authority: &ActiveAuthority<A>,
         start_seq: Option<TxSequenceNumber>,
-    ) -> PeerGossip<A> {
-        PeerGossip {
+    ) -> SuiResult<PeerGossip<A>> {
+        let start_seq = active_authority
+            .state
+            .get_next_expected_sequence(peer_name)?
+            .or(start_seq);
+
+        Ok(Self {
             peer_name,
             client: active_authority.net.load().authority_clients[&peer_name].clone(),
             state: active_authority.state.clone(),
             max_seq: start_seq,
             aggregator: active_authority.net.load().clone(),
-        }
+        })
     }
 
     pub async fn start(mut self, duration: Duration) -> (AuthorityName, Result<(), SuiError>) {
@@ -261,7 +267,10 @@ where
 
                 items = &mut streamx.next() => {
                     match items {
-                        Some(Ok(BatchInfoResponseItem(UpdateItem::Batch(_signed_batch)) )) => {},
+                        Some(Ok(BatchInfoResponseItem(UpdateItem::Batch(signed_batch)) )) => {
+                            let next_seq = signed_batch.batch.next_sequence_number;
+                            self.state.record_next_sequence(self.peer_name, next_seq)?;
+                        },
 
                         // Upon receiving a transaction digest, store it if it is not processed already.
                         Some(Ok(BatchInfoResponseItem(UpdateItem::Transaction((seq, digest))))) => {

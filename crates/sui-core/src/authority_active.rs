@@ -200,8 +200,9 @@ where
         let gossip_locals = active.clone();
         let _gossip_join = tokio::task::spawn(async move {
             if gossip {
-                gossip_process(&gossip_locals, 4).await;
+                return gossip_process(&gossip_locals, 4).await;
             }
+            Ok(())
         });
 
         // Spawn task to take care of checkpointing

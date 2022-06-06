@@ -43,7 +43,7 @@ use std::{
 };
 use sui_adapter::adapter;
 use sui_config::genesis::Genesis;
-use sui_storage::IndexStore;
+use sui_storage::{follower_store::FollowerStore, IndexStore};
 use sui_types::{
     base_types::*,
     batch::{TxSequenceNumber, UpdateItem},
@@ -248,6 +248,9 @@ pub struct AuthorityState {
 
     /// The checkpoint store
     pub(crate) checkpoints: Option<Arc<Mutex<CheckpointStore>>>,
+
+    /// Stores next expected sequence number from validators that we follow
+    pub(crate) follower_store: Option<Arc<FollowerStore>>,
 
     // Structures needed for handling batching and notifications.
     /// The sender to notify of new transactions
@@ -780,6 +783,7 @@ impl AuthorityState {
         store: Arc<AuthorityStore>,
         indexes: Option<Arc<IndexStore>>,
         checkpoints: Option<Arc<Mutex<CheckpointStore>>>,
+        follower_store: Option<Arc<FollowerStore>>,
         genesis: &Genesis,
     ) -> Self {
         let (tx, _rx) = tokio::sync::broadcast::channel(BROADCAST_CAPACITY);
@@ -839,6 +843,7 @@ impl AuthorityState {
             // this is because they largely deal with different types of MoveStructs
             event_handler: Some(Arc::new(EventHandler::new(store.clone()))),
             checkpoints,
+            follower_store,
             batch_channels: tx,
             batch_notifier: Arc::new(
                 authority_notifier::TransactionNotifier::new(store.clone())
@@ -1239,6 +1244,27 @@ impl AuthorityState {
         object_id: ObjectID,
     ) -> Result<Option<(ObjectRef, TransactionDigest)>, SuiError> {
         self.database.get_latest_parent_entry(object_id)
+    }
+
+    pub fn record_next_sequence(&self, name: AuthorityName, seq: TxSequenceNumber) -> SuiResult {
+        self.follower_store
+            .as_ref()
+            .ok_or(SuiError::UnsupportedFeatureError {
+                error: "follower store not enabled".into(),
+            })?
+            .record_next_sequence(&name, seq)
+    }
+
+    pub fn get_next_expected_sequence(
+        &self,
+        name: AuthorityName,
+    ) -> SuiResult<Option<TxSequenceNumber>> {
+        self.follower_store
+            .as_ref()
+            .ok_or(SuiError::UnsupportedFeatureError {
+                error: "follower store not enabled".into(),
+            })?
+            .get_next_sequence(&name)
     }
 }
 

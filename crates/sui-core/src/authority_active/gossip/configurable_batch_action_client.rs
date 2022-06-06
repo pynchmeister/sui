@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::sync::Once;
 use std::{env, fs};
 use sui_adapter::genesis;
+use sui_storage::follower_store::FollowerStore;
 use sui_types::base_types::*;
 use sui_types::batch::{AuthorityBatch, SignedBatch, UpdateItem};
 use sui_types::committee::Committee;
@@ -67,7 +68,9 @@ impl ConfigurableBatchActionClient {
         let path = dir.join(format!("DB_{:?}", ObjectID::random()));
         fs::create_dir(&path).unwrap();
 
-        let store = Arc::new(AuthorityStore::open(path, None));
+        let store = Arc::new(AuthorityStore::open(path.clone(), None));
+        let follower_store =
+            Arc::new(FollowerStore::open(path.join("follower_db")).expect("cannot open db"));
         let state = AuthorityState::new(
             committee.clone(),
             address,
@@ -75,6 +78,7 @@ impl ConfigurableBatchActionClient {
             store,
             None,
             None,
+            Some(follower_store),
             &sui_config::genesis::Genesis::get_default_genesis(),
         )
         .await;
