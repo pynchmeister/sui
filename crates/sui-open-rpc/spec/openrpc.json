@@ -1090,7 +1090,7 @@
             ],
             "properties": {
               "moveEvent": {
-                "$ref": "#/components/schemas/MoveEvent"
+                "$ref": "#/components/schemas/MoveObject"
               }
             },
             "additionalProperties": false
@@ -1384,7 +1384,7 @@
           }
         }
       },
-      "MoveEvent": {
+      "MoveObject": {
         "type": "object",
         "required": [
           "fields",

@@ -27,7 +27,7 @@ use sui_types::base_types::{
 use sui_types::committee::EpochId;
 use sui_types::crypto::{AuthorityQuorumSignInfo, Signature};
 use sui_types::error::SuiError;
-use sui_types::event::{Event, MoveEvent, TransferType};
+use sui_types::event::{Event, TransferType};
 use sui_types::gas::GasCostSummary;
 use sui_types::gas_coin::GasCoin;
 use sui_types::messages::{
@@ -35,7 +35,7 @@ use sui_types::messages::{
     SingleTransactionKind, TransactionData, TransactionEffects, TransactionKind,
 };
 use sui_types::move_package::disassemble_modules;
-use sui_types::object::{Data, Object, ObjectFormatOptions, ObjectRead, Owner};
+use sui_types::object::{Data, MoveObject, Object, ObjectFormatOptions, ObjectRead, Owner};
 use sui_types::sui_serde::{Base64, Encoding};
 
 use sui_json::SuiJsonValue;
@@ -324,6 +324,38 @@ pub struct SuiMoveObject {
     #[serde(rename = "type")]
     pub type_: String,
     pub fields: SuiMoveStruct,
+}
+
+impl SuiMoveObject {
+    fn try_from_layout(
+        m: MoveObject,
+        layout: Option<MoveStructLayout>,
+    ) -> Result<Self, anyhow::Error> {
+        let move_struct = m
+            .to_move_struct(&layout.ok_or(SuiError::ObjectSerializationError {
+                error: "Layout is required to convert Move object to json".to_owned(),
+            })?)?
+            .into();
+
+        Ok(
+            if let SuiMoveStruct::WithTypes { type_, fields } = move_struct {
+                SuiMoveObject {
+                    type_,
+                    fields: SuiMoveStruct::WithFields(fields),
+                }
+            } else {
+                SuiMoveObject {
+                    type_: m.type_.to_string(),
+                    fields: move_struct,
+                }
+            },
+        )
+    }
+
+    fn try_from(o: MoveObject, resolver: &impl GetModule) -> Result<Self, anyhow::Error> {
+        let layout = o.get_layout(ObjectFormatOptions::default(), resolver).ok();
+        Self::try_from_layout(o, layout)
+    }
 }
 
 impl TryFrom<&SuiObject> for GasCoin {
@@ -1116,7 +1148,7 @@ pub struct OwnedObjectRef {
 #[serde(rename = "Event", rename_all = "camelCase")]
 pub enum SuiEvent {
     /// Move-specific event
-    MoveEvent(SuiMoveEvent),
+    MoveEvent(SuiMoveObject),
     /// Module published
     #[serde(rename_all = "camelCase")]
     Publish { package_id: ObjectID },
@@ -1142,7 +1174,7 @@ impl SuiEvent {
     fn try_from(event: Event, resolver: &impl GetModule) -> Result<Self, anyhow::Error> {
         Ok(match event {
             Event::MoveEvent(event) => {
-                SuiEvent::MoveEvent(SuiMoveEvent::try_from(event, resolver)?)
+                SuiEvent::MoveEvent(SuiMoveObject::try_from(event, resolver)?)
             }
             Event::Publish { package_id } => SuiEvent::Publish { package_id },
             Event::TransferObject {
@@ -1163,41 +1195,6 @@ impl SuiEvent {
         })
     }
 }
-
-#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename = "MoveEvent", rename_all = "camelCase")]
-pub struct SuiMoveEvent {
-    pub type_: String,
-    pub fields: SuiMoveStruct,
-}
-
-impl SuiMoveEvent {
-    fn try_from(event: MoveEvent, resolver: &impl GetModule) -> Result<Self, anyhow::Error> {
-        let move_struct: SuiMoveStruct = event
-            .to_move_struct_with_resolver(ObjectFormatOptions::default(), resolver)?
-            .into();
-
-        // Remove duplicated type information
-        let fields = if let SuiMoveStruct::WithTypes { type_: _, fields } = move_struct {
-            SuiMoveStruct::WithFields(fields)
-        } else {
-            move_struct
-        };
-
-        Ok(Self {
-            type_: event.type_.to_string(),
-            fields,
-        })
-    }
-}
-
-/*#[derive(Eq, PartialEq, Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(rename = "Event")]
-// TODO: we need to reconstitute this for non Move events
-pub struct SuiEvent {
-    pub type_: String,
-    pub contents: Vec<u8>,
-}*/
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename = "TransferCoin", rename_all = "camelCase")]
