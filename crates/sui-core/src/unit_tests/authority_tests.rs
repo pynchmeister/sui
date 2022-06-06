@@ -1325,6 +1325,7 @@ pub async fn init_state() -> AuthorityState {
         store,
         None,
         None,
+        None,
         &sui_config::genesis::Genesis::get_default_genesis(),
     )
     .await

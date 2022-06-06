@@ -725,6 +725,7 @@ async fn test_batch_to_checkpointing() {
         store.clone(),
         None,
         Some(checkpoints.clone()),
+        None,
         &sui_config::genesis::Genesis::get_default_genesis(),
     )
     .await;
@@ -813,6 +814,7 @@ async fn test_batch_to_checkpointing_init_crash() {
             store.clone(),
             None,
             None,
+            None,
             &sui_config::genesis::Genesis::get_default_genesis(),
         )
         .await;
@@ -893,6 +895,7 @@ async fn test_batch_to_checkpointing_init_crash() {
             store.clone(),
             None,
             Some(checkpoints.clone()),
+            None,
             &sui_config::genesis::Genesis::get_default_genesis(),
         )
         .await;
@@ -1381,6 +1384,7 @@ pub async fn checkpoint_tests_setup(num_objects: usize, batch_interval: Duration
             store.clone(),
             None,
             Some(checkpoint.clone()),
+            None,
             &genesis,
         )
         .await;

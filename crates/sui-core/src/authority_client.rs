@@ -351,6 +351,7 @@ impl LocalAuthorityClient {
             store,
             None,
             Some(Arc::new(Mutex::new(checkpoints))),
+            None,
             genesis,
         )
         .await;
