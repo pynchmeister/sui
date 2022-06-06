@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::Write;
 
 use clap::ArgEnum;
 use clap::Parser;
@@ -15,10 +13,9 @@ use serde_json::{json, Map, Value};
 
 use std::fs::File;
 use std::io::Write;
-use sui::config::SUI_WALLET_CONFIG;
 use sui::wallet_commands::{WalletCommandResult, WalletCommands, WalletContext};
 use sui::wallet_commands::{EXAMPLE_NFT_DESCRIPTION, EXAMPLE_NFT_NAME, EXAMPLE_NFT_URL};
-use sui_config::GenesisConfig;
+use sui_config::genesis_config::GenesisConfig;
 use sui_config::SUI_WALLET_CONFIG;
 use sui_core::gateway_types::{
     GetObjectDataResponse, SuiObjectInfo, TransactionEffectsResponse, TransactionResponse,
@@ -125,7 +122,7 @@ async fn create_response_sample() -> Result<
     anyhow::Error,
 > {
     let network = start_rpc_test_network(Some(GenesisConfig::custom_genesis(1, 4, 30))).await?;
-    let working_dir = network.working_dir.clone();
+    let working_dir = network.network.dir();
     let config = working_dir.join(SUI_WALLET_CONFIG);
 
     let mut context = WalletContext::new(&config)?;
