@@ -268,8 +268,11 @@ where
                 items = &mut streamx.next() => {
                     match items {
                         Some(Ok(BatchInfoResponseItem(UpdateItem::Batch(signed_batch)) )) => {
-                            let next_seq = signed_batch.batch.next_sequence_number;
-                            self.state.record_next_sequence(self.peer_name, next_seq)?;
+                            // When we receive a batch, we have processed all txes from the
+                            // previous batch, but not the txes in the current batch, so we store
+                            // the starting sequence of the new batch.
+                            let initial_seq = signed_batch.batch.initial_sequence_number;
+                            self.state.record_next_sequence(self.peer_name, initial_seq)?;
                         },
 
                         // Upon receiving a transaction digest, store it if it is not processed already.

@@ -14,8 +14,8 @@ use crate::default_db_options;
 
 use tracing::debug;
 
-/// FollowerStore tracks the next tx sequence numbers that we should expect after the previous
-/// batch.
+/// FollowerStore tracks the initial tx sequence number of the next batch we should
+/// request from the peer we are following.
 pub struct FollowerStore {
     next_sequence: DBMap<AuthorityName, TxSequenceNumber>,
 }
